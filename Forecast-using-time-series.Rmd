@@ -1,0 +1,214 @@
+---
+title: "Forecast daily bike rental demand using time series models"
+author: "Dhaval Shah"
+date: "`r Sys.Date()`"
+output:
+  pdf_document: default
+  html_document: default
+  always_allow_html: true
+---
+```{r}
+#tinytex::install_tinytex()
+```
+
+
+# About Data Analysis Report
+
+This RMarkdown file contains the report of the data analysis done for the project on forecasting daily bike rental demand using time series models in R. It contains analysis such as data exploration, summary statistics and building the time series models. The final report was completed on `r date()`. 
+
+**Data Description:**
+
+This dataset contains the daily count of rental bike transactions between years 2011 and 2012 in Capital bikeshare system with the corresponding weather and seasonal information.
+
+**Data Source:** https://archive.ics.uci.edu/ml/datasets/bike+sharing+dataset
+
+**Relevant Paper:** 
+
+Fanaee-T, Hadi, and Gama, Joao. Event labeling combining ensemble detectors and background knowledge, Progress in Artificial Intelligence (2013): pp. 1-15, Springer Berlin Heidelberg
+
+
+
+# Task One: Load and explore the data
+
+## Load data and install packages
+
+```{r}
+## Import required packages
+#install.packages("timetk")
+#install.packages("lubridate")
+
+library(timetk)
+library(lubridate)
+
+```
+
+
+## Describe and explore the data
+
+```{r}
+# Load the bike_sharing_daily data set
+data("bike_sharing_daily")
+
+# Rename the data set
+bike_data <- bike_sharing_daily
+
+# View the data
+head(bike_data)
+
+# Explore the data
+# Calculate correlation between temperature and bike rentals
+cor(bike_data$temp, bike_data$cnt, use = "complete.obs")
+cor(bike_data$atemp, bike_data$cnt, use = "complete.obs")
+
+# Calculate mean and median temperatures for different seasons
+mean_temp_by_season <- aggregate(bike_data$temp, by=list(bike_data$season), FUN=mean)
+median_temp_by_season <- aggregate(bike_data$temp, by=list(bike_data$season), FUN=median)
+
+# Calculate mean temperature, humidity, wind speed, and total rentals per month
+bike_data$date <- as.Date(bike_data$dteday, format = "%Y-%m-%d")
+mean_values_by_month <- aggregate(bike_data[, c("temp", "hum", "windspeed", "cnt")], by=list(month=months(bike_data$date)), FUN=mean)
+
+# Check if temperature is associated with bike rentals (registered vs. casual)
+plot(bike_data$temp, bike_data$casual)
+plot(bike_data$temp, bike_data$registered)
+
+# Plot temperature change across seasons
+boxplot(bike_data$temp ~ bike_data$season)
+```
+
+
+
+# Task Two: Create interactive time series plots
+
+```{r}
+## Read about the timetk package
+# ?timetk
+
+# Create interactive time series plot of bike rentals
+plot_time_series(bike_data, .date_var = date, .value = cnt, .interactive = TRUE, .plotly_slider = TRUE)
+
+# Group the plot by year
+plot_time_series(bike_data, .date_var = bike_data$date, .value = cnt, .interactive = TRUE, .plotly_slider = TRUE)
+
+# Plot seasonal diagnostics
+plot_seasonal_diagnostics(bike_data, .date_var = "date", .value = cnt)
+
+# Plot anomaly diagnostics
+plot_anomaly_diagnostics(bike_data, .date_var = "date", .value = cnt)
+```
+
+
+
+
+# Task Three: Smooth time series data
+
+```{r}
+# Install forecast package
+#install.packages("forecast")
+library(forecast)
+# Install TTR package
+#install.packages("TTR")
+
+# Load TTR package
+library(TTR)
+
+# Convert data to time series object
+bike_ts <- ts(bike_data$cnt, start = c(2011, 1), end = c(2012, 12), frequency = 12)
+# Clean the data by replacing outliers and missing values
+bike_ts_clean <- tsclean(bike_ts)
+
+# Perform simple exponential smoothing
+bike_exp_smooth <- HoltWinters(bike_ts_clean)
+
+# Perform simple moving average (order 10)
+bike_sma <- SMA(bike_ts_clean, n = 10)
+```
+
+
+
+# Task Four: Decompose and assess the stationarity of time series data
+
+```{r}
+
+#install.packages("tseries")
+library(tseries)
+
+# Decompose the time series
+bike_decomposed <- decompose(bike_ts_clean)
+plot(bike_decomposed)
+
+# Create time series without seasonal component
+bike_no_season <- bike_ts_clean - bike_decomposed$seasonal
+
+# Check stationarity
+adf.test(bike_no_season)
+acf(bike_no_season)
+pacf(bike_no_season)
+
+# If not stationary, make it stationary using differencing
+bike_diff <- diff(bike_no_season)
+adf.test(bike_diff)
+```
+
+
+
+# Task Five: Fit and forecast time series data using ARIMA models
+
+```{r}
+library(forecast)
+# Fit manual ARIMA model
+bike_arima <- arima(bike_ts_clean, order = c(1, 1, 1))
+summary(bike_arima)
+
+# Check residuals
+res <- residuals(bike_arima)
+shapiro.test(res)
+plot(res)
+
+# Fit auto ARIMA model
+bike_auto_arima <- auto.arima(bike_ts_clean)
+summary(bike_auto_arima)
+
+# Forecast using manual ARIMA model
+bike_forecast <- forecast(bike_arima, h = 25)
+plot(bike_forecast)
+
+# Forecast using auto ARIMA model
+bike_auto_forecast <- forecast(bike_auto_arima, h = 25)
+plot(bike_auto_forecast)
+```
+
+
+
+# Task Six: Findings and Conclusions
+
+Data Exploration:
+
+There is a positive correlation (around 0.63) between temperature (temp and atemp) and bike rental count (cnt), indicating that higher temperatures are associated with increased bike rentals.
+The mean and median temperatures vary across different seasons, with higher temperatures observed in summer (Season 4) and lower temperatures in winter (Season 1).
+Both casual and registered bike rentals seem to increase with higher temperatures, suggesting that temperature is a significant factor influencing bike rental demand.
+
+
+Time Series Analysis:
+
+The interactive time series plots provide a visual representation of the bike rental demand over time, allowing for the identification of patterns, seasonality, and potential anomalies.
+The seasonal diagnostics plot reveals clear weekly, monthly, and quarterly patterns in the bike rental data, with higher demand observed during warmer months and on weekends.
+
+
+Data Smoothing and Stationarity:
+
+Smoothing techniques, such as exponential smoothing and simple moving averages, can help reduce noise and reveal underlying trends in the time series data.
+The decomposed time series shows distinct trend, seasonal, and random components, indicating the presence of non-stationarity in the data.
+After removing the seasonal component, the Augmented Dickey-Fuller (ADF) test suggests that the time series is still non-stationary, requiring differencing to achieve stationarity.
+
+
+ARIMA Modeling and Forecasting:
+
+Both manually specified and automatically selected ARIMA models were fitted to the bike rental data.
+The residuals from the manually specified ARIMA(1,1,1) model show some deviation from normality, indicating potential room for improvement in the model.
+The auto.arima function selected an ARIMA(0,0,1) model with a non-zero mean, which appears to have a slightly better fit based on the error measures.
+The forecasts generated by both ARIMA models provide predictions for future bike rental demand, enabling proactive planning and resource allocation.
+
+
+
+In conclusion, the analysis highlights the importance of temperature and seasonality in predicting bike rental demand. The time series analysis and ARIMA modeling techniques employed provide valuable insights and forecasting capabilities for the bike rental business. However, it is essential to consider other relevant factors, such as weather conditions, special events, and infrastructure changes, to further refine and improve the forecasting models.
